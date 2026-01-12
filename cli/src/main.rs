@@ -9,6 +9,14 @@ use std::env;
 use std::fs;
 use std::process::exit;
 
+#[cfg(unix)]
+use libc;
+
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::CloseHandle;
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
 use commands::{gen_id, parse_command, ParseError};
 use connection::{ensure_daemon, send_command};
 use flags::{clean_args, parse_flags};
@@ -36,11 +44,19 @@ fn run_session(args: &[String], session: &str, json_mode: bool) {
                             // Check if session is actually running
                             let pid_path = tmp.join(&name);
                             if let Ok(pid_str) = fs::read_to_string(&pid_path) {
-                                if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                                if let Ok(pid) = pid_str.trim().parse::<u32>() {
                                     #[cfg(unix)]
-                                    let running = unsafe { libc::kill(pid, 0) == 0 };
+                                    let running = unsafe { libc::kill(pid as i32, 0) == 0 };
                                     #[cfg(windows)]
-                                    let running = true; // Simplified for Windows
+                                    let running = unsafe {
+                                        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                                        if handle != 0 {
+                                            CloseHandle(handle);
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    };
                                     if running {
                                         sessions.push(session_name.to_string());
                                     }
