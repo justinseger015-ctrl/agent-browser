@@ -609,9 +609,14 @@ export class BrowserManager {
   async launch(options: LaunchCommand): Promise<void> {
     const cdpPort = options.cdpPort;
     const hasExtensions = !!options.extensions?.length;
+    const hasProfile = !!options.profile;
 
     if (hasExtensions && cdpPort) {
       throw new Error('Extensions cannot be used with CDP connection');
+    }
+
+    if (hasProfile && cdpPort) {
+      throw new Error('Profile cannot be used with CDP connection');
     }
 
     if (this.isLaunched()) {
@@ -640,6 +645,7 @@ export class BrowserManager {
 
     let context: BrowserContext;
     if (hasExtensions) {
+      // Extensions require persistent context in a temp directory
       const extPaths = options.extensions!.join(',');
       const session = process.env.AGENT_BROWSER_SESSION || 'default';
       context = await launcher.launchPersistentContext(
@@ -653,7 +659,17 @@ export class BrowserManager {
         }
       );
       this.isPersistentContext = true;
+    } else if (hasProfile) {
+      // Profile uses persistent context for durable cookies/storage
+      context = await launcher.launchPersistentContext(options.profile!, {
+        headless: options.headless ?? true,
+        executablePath: options.executablePath,
+        viewport,
+        extraHTTPHeaders: options.headers,
+      });
+      this.isPersistentContext = true;
     } else {
+      // Regular ephemeral browser
       this.browser = await launcher.launch({
         headless: options.headless ?? true,
         executablePath: options.executablePath,
